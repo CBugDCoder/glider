@@ -10,15 +10,21 @@ local function get_pitch_lift(y)
 	return l
 end
 
-local mouse_controls = minetest.settings:get_bool("glider_mouse_controls", true)
+local mouse_controls = minetest.settings:get_bool("glider.mouse_controls", true)
+local enable_rockets = minetest.settings:get_bool("glider.enable_rockets", true)
+local rocket_delay = tonumber(minetest.settings:get("glider.rocket_delay") or 10)
 
 local on_step = function(self, dtime, moveresult)
-	self.time_from_last_rocket = math.min(self.time_from_last_rocket+dtime,10)
+	self.time_from_last_rocket = math.min(self.time_from_last_rocket+dtime,rocket_delay)
 	local vel = self.object:get_velocity()
 	local speed = self.speed
 	local actual_speed = math.sqrt(vel.x^2+vel.y^2+vel.z^2)
 	local rot = self.object:get_rotation()
 	local driver = minetest.get_player_by_name(self.driver)
+	if not driver then
+		self.object:remove()
+		return
+	end
 	local pos = self.object:get_pos()
 	
 	--Check Surroundings
@@ -96,7 +102,14 @@ end
 
 
 
+local init_delay = 1
+if rocket_delay >= 1 then
+	init_delay = rocket_delay
+end
 
+--
+-- Glider
+--
 minetest.register_entity("glider:hangglider", {
 	physical = true,
 	pointable = false,
@@ -110,7 +123,7 @@ minetest.register_entity("glider:hangglider", {
 	driver = "",
 	free_fall = false,
 	speed = 0,
-	time_from_last_rocket = 0,
+	time_from_last_rocket = init_delay, -- enforce a 1s delay between opening the glider and rocket use
 })
 
 minetest.register_tool("glider:glider", {
@@ -142,51 +155,61 @@ minetest.register_tool("glider:glider", {
 			luaent.speed = math.sqrt(vel.x^2+(vel.y/4)^2+vel.z^2)
 			user:set_attach(ent, "", {x=0,y=0,z=-10}, {x=90,y=0,z=0})
 			user:set_eye_offset({x=0,y=-16.25,z=0},{x=0,y=-15,z=0})
+			itemstack:set_wear(itemstack:get_wear() + 255 )
+			return itemstack
 		end
 	end,
-})
-
-minetest.register_craftitem("glider:rocket", {
-	description = "Rocket (Use while gliding to boost glider speed)",
-	inventory_image = "glider_rocket.png",
-	on_use = function(itemstack, user, pt)
-		local attach = user:get_attach()
-		if attach then
-			local luaent = attach:get_luaentity()
-			if luaent.name == "glider:hangglider" then
-				luaent.speed = luaent.speed + luaent.time_from_last_rocket
-				luaent.time_from_last_rocket = 0
-				itemstack:take_item()
-				minetest.add_particlespawner({
-					amount = 1000,
-					time = 2,
-					minpos = {x = -0.125, y = -0.125, z = -0.125},
-					maxpos = {x = 0.125, y = 0.125, z = 0.125},
-					minexptime = 0.5,
-					maxexptime = 1.5,
-					attached = attach,
-					texture = "glider_rocket_particle.png",
-				})
-				return itemstack
-			end
-		end
-	end
 })
 
 minetest.register_craft({
 	output = "glider:glider",
 	recipe = {
-		{"group:wool", "group:wool", "group:wool" },
-		{"group:stick","",           "group:stick"},
-		{"",           "group:stick",""           },
+		{"", "default:paper", "" },
+		{"default:paper","default:paper","default:paper"},
+		{"default:paper","group:stick","default:paper"},
 	}
 })
 
-minetest.register_craft({
-	output = "glider:rocket 33",
-	recipe = {
-		{"group:wood","tnt:gunpowder","group:wood"},
-		{"group:wood","tnt:gunpowder","group:wood"},
-		{"group:wood","tnt:gunpowder","group:wood"},
-	}
-})
+--
+--Rockets
+--
+if enable_rockets then
+	minetest.register_craftitem("glider:rocket", {
+		description = "Rocket (Use while gliding to boost glider speed)",
+		inventory_image = "glider_rocket.png",
+		on_use = function(itemstack, user, pt)
+			local attach = user:get_attach()
+			if attach then
+				local luaent = attach:get_luaentity()
+				if luaent.name == "glider:hangglider" then
+					if luaent.time_from_last_rocket < rocket_delay then --anti rocket spam protection
+						return itemstack
+					end
+					luaent.speed = luaent.speed + luaent.time_from_last_rocket
+					luaent.time_from_last_rocket = 0
+					itemstack:take_item()
+					minetest.add_particlespawner({
+						amount = 1000,
+						time = 2,
+						minpos = {x = -0.125, y = -0.125, z = -0.125},
+						maxpos = {x = 0.125, y = 0.125, z = 0.125},
+						minexptime = 0.5,
+						maxexptime = 1.5,
+						attached = attach,
+						texture = "glider_rocket_particle.png",
+					})
+					return itemstack
+				end
+			end
+		end
+	})
+
+	minetest.register_craft({
+		output = "glider:rocket 33",
+		recipe = {
+			{"group:wood","tnt:gunpowder","group:wood"},
+			{"group:wood","tnt:gunpowder","group:wood"},
+			{"group:wood","tnt:gunpowder","group:wood"},
+		}
+	})
+end
